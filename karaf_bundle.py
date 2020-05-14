@@ -26,7 +26,7 @@ options:
             - bundle state
         required: false
         default: present
-        choices: [ "present", "absent", "start", "stop", "restart", "refresh", "update" ]
+        choices: [ "present", "absent", "start", "stop", "restart", "refresh", "update", dynamic" ]
     client_bin:
         description:
             - path to the 'client' program in karaf, can also point to the root of the karaf installation '/opt/karaf'
@@ -53,13 +53,14 @@ PACKAGE_STATE_MAP = dict(
     stop="stop",
     restart="restart",
     refresh="refresh",
-    update="update"
+    update="update",
+    dynamic="dynamic-import"
 )
 
 CLIENT_KARAF_COMMAND = "{0} 'bundle:{1}'"
 CLIENT_KARAF_COMMAND_WITH_ARGS = "{0} 'bundle:{1} {2}'"
 
-_KARAF_COLUMN_SEPARATOR = '\xe2\x94\x82'
+_KARAF_COLUMN_SEPARATOR = '|'
 
 def run_with_check(module, cmd):
     rc, out, err = module.run_command(cmd)
@@ -94,15 +95,15 @@ def launch_bundle_action(client_bin, module, url, bundle_id, action):
     if module.check_mode:
         return result
     
-    bnd_ref = url if action == 'install' else bundle_id
+    bnd_ref = url if (action == 'install' or action == 'dynamic-import') else bundle_id
 
-    cmd = CLIENT_KARAF_COMMAND_WITH_ARGS.format(client_bin, action, bnd_ref)
+    cmd = "CLIENT_KARAF_COMMAND_WITH_ARGS.format(client_bin, action, bnd_ref)"
     out = run_with_check(module, cmd)
     
     return result
 
 def is_bundles_installed(client_bin, module, bundle_url):
-    karaf_cmd = '%s "bundle:list -t 0 -u"' % (client_bin)
+    karaf_cmd = '%s "bundle:list -t 0"' % (client_bin)
     out = run_with_check(module, karaf_cmd)
     
     existing_bundle = None
@@ -160,6 +161,9 @@ def main():
         if  state == 'present' and \
             existing_bundle['url'] == url:
             return module.exit_json(changed=False, name=existing_bundle['id'], msg = 'Bundle already installed')
+        if  state == 'dynamic' and \
+            existing_bundle['url'] == url:
+            return module.exit_json(changed=False, name=existing_bundle['id'], msg = 'Bundle already installed')
 
         if state == 'start' and existing_bundle['state'] == 'Active':
             return module.exit_json(changed = False, name=existing_bundle['id'], msg = 'Bundle already started')
@@ -169,7 +173,7 @@ def main():
     
     # if no bundle installed with given URL
     else:
-        if state != 'present':
+        if (state != 'present' or state != 'dynamic'):
             return module.fail_json(msg = "Can not execute action on a non-existing bundle, Could not find a bundle installed with URL: %s" % (url,))
 
     result = launch_bundle_action(
